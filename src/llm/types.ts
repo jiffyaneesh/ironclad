@@ -11,6 +11,7 @@
 export interface TextPart {
   type: "text";
   text: string;
+  rawPart?: unknown;
 }
 
 export interface ToolUsePart {
@@ -20,6 +21,7 @@ export interface ToolUsePart {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  rawPart?: unknown;
 }
 
 export interface ToolResultPart {

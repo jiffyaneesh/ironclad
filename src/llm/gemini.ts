@@ -48,7 +48,6 @@ export class GeminiClient implements LLMClient {
 
 function toGeminiContents(messages: LLMMessage[]): Content[] {
   return messages.map((msg) => ({
-    // Gemini supports "user" and "model" roles
     role: msg.role === "assistant" ? "model" : "user",
     parts: toGeminiParts(msg.content),
   }));
@@ -56,13 +55,15 @@ function toGeminiContents(messages: LLMMessage[]): Content[] {
 
 function toGeminiParts(parts: MessagePart[]): Part[] {
   return parts.flatMap((p): Part[] => {
+    // If we preserved the original raw Gemini Part, send it back unchanged (preserves thought_signature / metadata)
+    if ("rawPart" in p && p.rawPart) {
+      return [p.rawPart as Part];
+    }
     if (p.type === "text") return [{ text: p.text }];
     if (p.type === "tool_use") {
       return [{ functionCall: { name: p.name, args: p.input } }];
     }
     if (p.type === "tool_result") {
-      // Gemini matches function responses by function name, not by call ID.
-      // We store the function name as the tool_use_id in fromGeminiResponse below.
       return [
         {
           functionResponse: {
@@ -81,11 +82,7 @@ function toGeminiFunctionDeclaration(tool: ToolDefinition): FunctionDeclaration 
     name: tool.name,
     description: tool.description,
     parameters: {
-      // The Gemini SDK's SchemaType enum isn't exported reliably across versions,
-      // so we cast to the expected schema shape. The runtime value "OBJECT" is correct.
       type: "OBJECT" as FunctionDeclarationSchema["type"],
-      // cast: SDK's Schema type for nested properties is overly strict and doesn't
-      // accept plain {type, description} objects even though the API does.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       properties: Object.fromEntries(
         Object.entries(tool.parameters.properties).map(([k, v]) => [
@@ -100,7 +97,6 @@ function toGeminiFunctionDeclaration(tool: ToolDefinition): FunctionDeclaration 
 
 function toGeminiPropertySchema(prop: ToolProperty): Record<string, unknown> {
   return {
-    // Same casting rationale as above — SchemaType is not reliably importable
     type: "STRING" as string,
     description: prop.description ?? "",
   };
@@ -113,17 +109,18 @@ function fromGeminiResponse(content: Content | undefined): LLMResponse {
 
   for (const part of content?.parts ?? []) {
     if (part.text) {
-      parts.push({ type: "text", text: part.text });
+      parts.push({
+        type: "text",
+        text: part.text,
+        rawPart: part,
+      });
     } else if (part.functionCall) {
-      // Gemini doesn't emit call IDs — we use the function name as the ID.
-      // This means two simultaneous calls to the same function in one turn
-      // would collide; in practice, Gemini serializes tool calls so this
-      // doesn't arise. If it ever does, add a counter suffix here.
       parts.push({
         type: "tool_use",
         id: part.functionCall.name,
         name: part.functionCall.name,
         input: (part.functionCall.args ?? {}) as Record<string, unknown>,
+        rawPart: part,
       });
     }
   }
@@ -132,4 +129,4 @@ function fromGeminiResponse(content: Content | undefined): LLMResponse {
   return { content: parts, stopReason };
 }
 
-export type { ToolResultPart, ToolUsePart }; // re-export for convenience
+export type { ToolResultPart, ToolUsePart };
