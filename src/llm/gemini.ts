@@ -37,14 +37,8 @@ export class GeminiClient implements LLMClient {
       tools: [{ functionDeclarations: tools.map(toGeminiFunctionDeclaration) } as GeminiTool],
     });
 
-    // Gemini uses a stateful chat with history + a new message.
-    // All messages except the last become history; the last is the new turn.
-    const history = toGeminiHistory(messages.slice(0, -1));
-    const lastMessage = messages.at(-1);
-    const lastParts = lastMessage ? toGeminiParts(lastMessage.content) : [{ text: "" }];
-
-    const chat = geminiModel.startChat({ history });
-    const result = await chat.sendMessage(lastParts);
+    const contents = toGeminiContents(messages);
+    const result = await geminiModel.generateContent({ contents });
 
     return fromGeminiResponse(result.response.candidates?.[0]?.content);
   }
@@ -52,9 +46,9 @@ export class GeminiClient implements LLMClient {
 
 // ---- Outbound (normalized → Gemini) -----------------------------------------
 
-function toGeminiHistory(messages: LLMMessage[]): Content[] {
+function toGeminiContents(messages: LLMMessage[]): Content[] {
   return messages.map((msg) => ({
-    // Gemini uses "model" where normalized uses "assistant"
+    // Gemini supports "user" and "model" roles
     role: msg.role === "assistant" ? "model" : "user",
     parts: toGeminiParts(msg.content),
   }));
