@@ -1,4 +1,7 @@
 dist/
 node_modules/
 .rules.yaml
+.env
 *.local
+
+temp/

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "dotenv/config"; // loads .env into process.env before anything reads it
 import { resolve } from "node:path";
 import { loadRules } from "./ruleLoader.js";
 import { RuleEngine } from "./engine.js";

@@ -17,6 +17,7 @@
     "@anthropic-ai/sdk": "^0.32.0",
     "@google/generative-ai": "^0.24.1",
     "diff": "^9.0.0",
+    "dotenv": "^17.4.2",
     "js-yaml": "^4.1.0",
     "minimatch": "^9.0.5",
     "openai": "^7.5.0"
