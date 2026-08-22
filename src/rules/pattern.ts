@@ -1,4 +1,5 @@
 import { minimatch } from "minimatch";
+import { diffLines } from "diff";
 import type {
   EditFileAction,
   PatternForbidRule,
@@ -6,13 +7,22 @@ import type {
   RuleViolation,
 } from "../types.js";
 
-/** Returns lines present in `content` but not in `previousContent` — a cheap
- *  stand-in for "the diff" without needing a full diff library. Good enough
- *  for line-level pattern checks; swap for a real diff lib if you need
- *  precise hunk boundaries. */
+/**
+ * Returns lines that were genuinely added in this edit, using a real line-level
+ * unified diff. Avoids false positives from the previous set-comparison approach,
+ * which treated reordered identical lines as "added".
+ *
+ * Both inputs are normalized to end with "\n" so diffLines computes a clean
+ * line-level diff — without this, a missing trailing newline causes the entire
+ * file to be treated as a single replacement instead of per-line changes.
+ */
 function addedLines(action: EditFileAction): string[] {
-  const before = new Set((action.previousContent ?? "").split("\n"));
-  return action.content.split("\n").filter((line) => !before.has(line));
+  const normalize = (s: string) => (s.endsWith("\n") ? s : s + "\n");
+  const before = normalize(action.previousContent ?? "");
+  const changes = diffLines(before, normalize(action.content));
+  return changes
+    .filter((c) => c.added)
+    .flatMap((c) => c.value.split("\n").filter((l) => l.length > 0));
 }
 
 function appliesToFile(applies_to: string | string[] | undefined, path: string): boolean {
