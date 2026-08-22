@@ -1,0 +1,44 @@
+# Rules are compiled into mechanical checks — the agent cannot talk its way
+# past them, and they don't degrade as context fills up like prose rules do.
+# Copy this to .rules.yaml in your repo root and adjust.
+
+rules:
+  # Only files explicitly declared for the current task may be edited.
+  # Kills "agent refactored files nobody asked it to touch."
+  - id: stay-in-declared-scope
+    type: diff-scope
+    mode: declared
+    blocking: true
+    description: "Only edit files explicitly declared for this task."
+
+  # Never allow hardcoded secrets to be introduced.
+  - id: no-hardcoded-secrets
+    type: pattern-forbid
+    applies_to: "**/*"
+    pattern: "(api[_-]?key|secret|password)\\s*=\\s*['\"][^'\"]{6,}['\"]"
+    flags: "i"
+    blocking: true
+
+  # If a change adds a fetch/axios call, it must also add error handling.
+  - id: require-error-handling-on-network-calls
+    type: pattern-require
+    applies_to: "src/**/*.ts"
+    trigger_pattern: "(fetch\\(|axios\\.)"
+    pattern: "(catch|\\.catch\\()"
+    blocking: false # warn only — this one has false positives, so don't hard-block on it yet
+
+  # The agent cannot claim a task is done unless the real test suite passes.
+  # This is what stops "I ran the tests and they pass" when nothing was run.
+  - id: tests-must-pass
+    type: command-gate
+    command: "npm test --silent"
+    trigger: "on_task_complete"
+    timeout_ms: 180000
+    blocking: true
+
+  # Same idea for type-checking.
+  - id: typecheck-must-pass
+    type: command-gate
+    command: "npx tsc --noEmit"
+    trigger: "on_task_complete"
+    blocking: true
