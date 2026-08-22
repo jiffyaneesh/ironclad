@@ -12,30 +12,51 @@ export interface ProviderConfig {
   model?: string;
 }
 
+export interface ResolvedLLMClient {
+  client: LLMClient;
+  provider: Provider;
+  model: string;
+}
+
 /**
  * Creates the right LLMClient from config + environment.
  *
  * Detection order when provider is not explicit:
  *   ANTHROPIC_API_KEY → openai → OPENAI_API_KEY → GEMINI_API_KEY / GOOGLE_API_KEY
  */
-export function createLLMClient(config: ProviderConfig = {}): LLMClient {
+export function createLLMClient(config: ProviderConfig = {}): ResolvedLLMClient {
   const provider = config.provider ?? detectProvider();
 
   switch (provider) {
     case "anthropic": {
       const apiKey = process.env.ANTHROPIC_API_KEY;
       if (!apiKey) throw new Error("Provider 'anthropic' selected but ANTHROPIC_API_KEY is not set");
-      return new AnthropicClient(apiKey, config.model);
+      const model = config.model ?? "claude-opus-4-5";
+      return {
+        client: new AnthropicClient(apiKey, model),
+        provider,
+        model,
+      };
     }
     case "openai": {
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey) throw new Error("Provider 'openai' selected but OPENAI_API_KEY is not set");
-      return new OpenAIClient(apiKey, config.model);
+      const model = config.model ?? "gpt-4o";
+      return {
+        client: new OpenAIClient(apiKey, model),
+        provider,
+        model,
+      };
     }
     case "gemini": {
       const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
       if (!apiKey) throw new Error("Provider 'gemini' selected but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set");
-      return new GeminiClient(apiKey, config.model);
+      const model = config.model ?? "gemini-2.0-flash";
+      return {
+        client: new GeminiClient(apiKey, model),
+        provider,
+        model,
+      };
     }
   }
 }

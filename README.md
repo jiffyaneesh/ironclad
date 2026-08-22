@@ -65,12 +65,29 @@ See `.rules.yaml.example` for a working set covering all four.
 git clone https://github.com/jiffyaneesh/ironclad.git
 cd ironclad
 npm install
-cp .rules.yaml.example .rules.yaml   # then edit for your repo
-export ANTHROPIC_API_KEY=sk-...
 npm run build
 ```
 
-## Usage
+Set any of the supported API keys in `.env` or your shell:
+- `GEMINI_API_KEY` (defaults to `gemini-2.0-flash`)
+- `ANTHROPIC_API_KEY` (defaults to `claude-opus-4-5`)
+- `OPENAI_API_KEY` (defaults to `gpt-4o`)
+
+## Interactive CLI Agent
+
+Run without `--task` to enter the interactive conversational harness:
+
+```bash
+# Using npm
+npm start
+
+# Or using npx/node
+node dist/cli.js
+```
+
+Inside the interactive harness, you can prompt the agent continuously, inspect rules with `/rules`, switch scope with `/scope <files>`, or reset with `/clear`.
+
+## One-Shot Usage
 
 ```bash
 node dist/cli.js \

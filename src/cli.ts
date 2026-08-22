@@ -1,10 +1,22 @@
 #!/usr/bin/env node
-import "dotenv/config"; // loads .env into process.env before anything reads it
+import "dotenv/config";
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { loadRules } from "./ruleLoader.js";
 import { RuleEngine } from "./engine.js";
 import { runAgent } from "./agent.js";
 import { createLLMClient, type Provider } from "./llm/index.js";
+import { startInteractiveSession } from "./ui/session.js";
+import {
+  printAssistantMessage,
+  printToolCall,
+  printToolApplied,
+  printToolRejected,
+  printToolError,
+  printEscalation,
+} from "./ui/printer.js";
+import ora from "ora";
+import chalk from "chalk";
 
 function parseArgs(argv: string[]) {
   const args = argv.slice(2);
@@ -14,22 +26,7 @@ function parseArgs(argv: string[]) {
     return idx >= 0 ? args[idx + 1] : undefined;
   }
 
-  const task = flag("--task") ?? args[0];
-  if (!task) {
-    console.error(
-      [
-        "Usage: ironclad --task \"fix the bug in auth.ts\" --files auth.ts",
-        "                [--rules .rules.yaml] [--cwd .]",
-        "                [--provider anthropic|openai|gemini] [--model <model-name>]",
-        "",
-        "Provider is auto-detected from env if not set:",
-        "  ANTHROPIC_API_KEY  →  anthropic  (default model: claude-opus-4-5)",
-        "  OPENAI_API_KEY     →  openai     (default model: gpt-4o)",
-        "  GEMINI_API_KEY     →  gemini     (default model: gemini-2.0-flash)",
-      ].join("\n")
-    );
-    process.exit(1);
-  }
+  const task = flag("--task");
 
   return {
     task,
@@ -44,23 +41,86 @@ function parseArgs(argv: string[]) {
 async function main() {
   const { task, files, rulesPath, cwd, provider, model } = parseArgs(process.argv);
 
-  const llm = createLLMClient({ provider, model });
+  const llmInfo = createLLMClient({ provider, model });
+  const fullRulesPath = resolve(cwd, rulesPath);
 
-  console.log(`[harness] task: ${task}`);
-  console.log(`[harness] declared scope: ${files.length ? files.join(", ") : "(none)"}`);
-  console.log(`[harness] rules: ${rulesPath}`);
+  let rules: import("./types.js").Rule[] = [];
+  if (existsSync(fullRulesPath)) {
+    rules = loadRules(fullRulesPath);
+  } else {
+    // If no rules file found, default to empty list in interactive mode
+    if (task) {
+      console.warn(chalk.yellow(`[warning] Rules file not found at ${rulesPath}. Running without custom rules.`));
+    }
+  }
 
-  const rules = loadRules(resolve(cwd, rulesPath));
-  console.log(`[harness] loaded ${rules.length} rule(s): ${rules.map((r) => r.id).join(", ")}\n`);
+  // Interactive mode when no one-shot --task is specified
+  if (!task) {
+    await startInteractiveSession({
+      rules,
+      cwd,
+      llmInfo,
+      initialFiles: files,
+    });
+    return;
+  }
+
+  // One-shot mode (CLI execution)
+  console.log(`[ironclad] task: ${task}`);
+  console.log(`[ironclad] declared scope: ${files.length ? files.join(", ") : "(all)"}`);
+  console.log(`[ironclad] loaded ${rules.length} rule(s)`);
 
   const engine = new RuleEngine(rules, cwd, { retryBudget: 3 });
-  const result = await runAgent(task, files, engine, llm, { cwd });
+  const spinner = ora({ text: "Processing...", color: "cyan" }).start();
 
-  console.log(`\n[harness] run finished: ${result.status}`);
-  if (result.status !== "complete") process.exitCode = 1;
+  const result = await runAgent(task, files, engine, llmInfo.client, {
+    cwd,
+    events: {
+      onTurnStart: (turn) => {
+        spinner.text = `Turn ${turn}...`;
+      },
+      onAssistantMessage: (text) => {
+        spinner.stop();
+        printAssistantMessage(text);
+        spinner.start();
+      },
+      onToolCall: (name, input) => {
+        spinner.stop();
+        printToolCall(name, input);
+        spinner.start();
+      },
+      onToolApplied: (name, detail) => {
+        spinner.stop();
+        printToolApplied(detail);
+        spinner.start();
+      },
+      onToolRejected: (name, violations) => {
+        spinner.stop();
+        printToolRejected(violations);
+        spinner.start();
+      },
+      onToolError: (name, err) => {
+        spinner.stop();
+        printToolError(err);
+        spinner.start();
+      },
+    },
+  });
+
+  spinner.stop();
+
+  if (result.status === "complete") {
+    console.log(chalk.bold.green(`\n✔ ${result.summary ?? "Done."}\n`));
+  } else if (result.status === "escalated") {
+    printEscalation(result.rule ?? "unknown");
+    process.exitCode = 1;
+  } else {
+    console.log(chalk.yellow(`\n[ironclad] run status: ${result.status}\n`));
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(chalk.red("\nError:"), err instanceof Error ? err.message : err);
   process.exit(1);
 });
