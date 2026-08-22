@@ -1,0 +1,36 @@
+# Cursor Rules — Rule Harness Repo
+
+## Commit Discipline
+- Commit after every unit of change — one logical change, one commit.
+- Use conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`
+- Write *why* in the commit body, not just what.
+
+## SOLID
+- Single Responsibility: `engine.ts` checks rules, `agent.ts` runs the loop, checkers are pure functions. Keep each file doing exactly one thing.
+- Open/Closed: Add new rule types by adding new files + extending the union type. Don't modify existing checkers to handle new cases.
+- Liskov: All rule checkers must satisfy `(rule, action) => RuleViolation | null`. No exceptions.
+- Interface Segregation: Rule-type-specific fields belong on the specific interface, not on `BaseRule`.
+- Dependency Inversion: `RuleEngine` dispatches over `Rule[]`. Don't let checkers know about other checkers.
+
+## KISS
+- Prefer a plain function over a class. Prefer a `switch` over a registry. Prefer flat over nested.
+- No abstraction layers unless they remove real, existing duplication.
+- If a change adds more lines than it removes complexity, question it.
+
+## Clean Code
+- No `any` without a comment explaining why it can't be avoided.
+- No silent exception swallowing.
+- Functions under ~40 lines. Max 2 levels of nesting before extracting.
+- Name for what something IS, not what it DOES: `RuleViolation`, not `CheckOutput`.
+
+## File Responsibilities (do not cross these lines)
+- `src/rules/*.ts` — pure functions, no I/O, no side effects
+- `src/engine.ts` — dispatch + retry budget only
+- `src/agent.ts` — tool-use loop, file I/O, subprocess calls
+- `src/types.ts` — types only, zero logic
+- `src/cli.ts` — arg parsing + wiring only
+
+## Language/Runtime
+- TypeScript strict mode is on. Fix type errors, don't cast around them.
+- ESM (`"type": "module"`). Use `.js` extensions in imports.
+- No `process.exit()` outside `cli.ts`.
