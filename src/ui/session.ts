@@ -8,6 +8,7 @@ import { runAgent } from "../agent.js";
 import type { ResolvedLLMClient } from "../llm/index.js";
 import type { LLMMessage } from "../llm/types.js";
 import {
+  clearScreen,
   printBanner,
   printRules,
   printAssistantMessage,
@@ -30,6 +31,7 @@ export async function startInteractiveSession(opts: SessionOptions) {
   let declaredFiles = opts.initialFiles ?? [];
   let history: LLMMessage[] = [];
 
+  clearScreen();
   printBanner(llmInfo.provider, llmInfo.model, cwd, rules.length);
 
   const rl = readline.createInterface({ input, output });
