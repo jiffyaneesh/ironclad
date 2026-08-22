@@ -8,7 +8,7 @@ export type Provider = "anthropic" | "openai" | "gemini";
 export interface ProviderConfig {
   /** Explicit provider override. If omitted, auto-detected from env vars. */
   provider?: Provider;
-  /** Model override. Defaults are: anthropic=claude-opus-4-5, openai=gpt-4o, gemini=gemini-2.0-flash */
+  /** Model override. Defaults are: anthropic=claude-opus-4-5, openai=gpt-4o, gemini=gemini-3.6-flash */
   model?: string;
 }
 
@@ -51,7 +51,7 @@ export function createLLMClient(config: ProviderConfig = {}): ResolvedLLMClient 
     case "gemini": {
       const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
       if (!apiKey) throw new Error("Provider 'gemini' selected but neither GEMINI_API_KEY nor GOOGLE_API_KEY is set");
-      const model = config.model ?? "gemini-2.0-flash";
+      const model = config.model ?? "gemini-3.6-flash";
       return {
         client: new GeminiClient(apiKey, model),
         provider,
@@ -71,7 +71,7 @@ function detectProvider(): Provider {
       "No LLM provider detected. Set one of:",
       "  ANTHROPIC_API_KEY  (uses claude-opus-4-5)",
       "  OPENAI_API_KEY     (uses gpt-4o)",
-      "  GEMINI_API_KEY     (uses gemini-2.0-flash)",
+      "  GEMINI_API_KEY     (uses gemini-3.6-flash)",
       "Or pass --provider <anthropic|openai|gemini> explicitly.",
     ].join("\n")
   );

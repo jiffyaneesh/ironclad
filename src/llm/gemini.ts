@@ -21,7 +21,7 @@ export class GeminiClient implements LLMClient {
   private readonly genAI: GoogleGenerativeAI;
   private readonly model: string;
 
-  constructor(apiKey: string, model = "gemini-2.0-flash") {
+  constructor(apiKey: string, model = "gemini-3.6-flash") {
     this.genAI = new GoogleGenerativeAI(apiKey);
     this.model = model;
   }

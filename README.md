@@ -69,7 +69,7 @@ npm run build
 ```
 
 Set any of the supported API keys in `.env` or your shell:
-- `GEMINI_API_KEY` (defaults to `gemini-2.0-flash`)
+- `GEMINI_API_KEY` (defaults to `gemini-3.6-flash`)
 - `ANTHROPIC_API_KEY` (defaults to `claude-opus-4-5`)
 - `OPENAI_API_KEY` (defaults to `gpt-4o`)
 
