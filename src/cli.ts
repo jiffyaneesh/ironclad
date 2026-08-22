@@ -14,7 +14,7 @@ function parseArgs(argv: string[]) {
   const task = taskIdx >= 0 ? args[taskIdx + 1] : args[0];
   if (!task) {
     console.error(
-      'Usage: rule-harness --task "fix the bug in auth.ts" --files auth.ts [--rules .rules.yaml] [--cwd .]'
+      'Usage: ironclad --task "fix the bug in auth.ts" --files auth.ts [--rules .rules.yaml] [--cwd .]'
     );
     process.exit(1);
   }

@@ -1,10 +1,10 @@
 {
-  "name": "rule-harness",
+  "name": "ironclad",
   "version": "0.1.0",
   "description": "A rule-enforcement engine for AI coding agents. Rules are compiled into mechanical checks, not prompt text — they don't degrade as context fills up.",
   "type": "module",
   "bin": {
-    "rule-harness": "./dist/cli.js"
+    "ironclad": "./dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
