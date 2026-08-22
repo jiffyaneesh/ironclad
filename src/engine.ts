@@ -16,6 +16,11 @@ export interface RuleFailureRecord {
  * anyone, they're being executed.
  */
 export class RuleEngine {
+  /**
+   * Failure counters keyed as either `"ruleId"` (global scope) or
+   * `"ruleId::filePath"` (per-file scope). The engine inspects each rule's
+   * `retry_budget_scope` field to decide which key to use.
+   */
   private failureCounts = new Map<string, number>();
   private readonly retryBudget: number;
 
@@ -34,16 +39,15 @@ export class RuleEngine {
 
     if (action.kind === "edit_file") {
       for (const rule of this.rules) {
+        let v: RuleViolation | null = null;
         if (rule.type === "diff-scope") {
-          const v = checkDiffScope(rule, action, ctx);
-          if (v) violations.push(v);
+          v = checkDiffScope(rule, action, ctx);
         } else if (rule.type === "pattern-forbid") {
-          const v = checkPatternForbid(rule, action);
-          if (v) violations.push(v);
+          v = checkPatternForbid(rule, action);
         } else if (rule.type === "pattern-require") {
-          const v = checkPatternRequire(rule, action);
-          if (v) violations.push(v);
+          v = checkPatternRequire(rule, action);
         }
+        if (v) violations.push({ ...v, filePath: action.path });
       }
     }
 
@@ -58,18 +62,25 @@ export class RuleEngine {
 
     const blockingViolations = violations.filter((v) => v.blocking);
     for (const v of blockingViolations) {
-      this.failureCounts.set(v.ruleId, (this.failureCounts.get(v.ruleId) ?? 0) + 1);
+      const rule = this.rules.find((r) => r.id === v.ruleId);
+      const isPerFile = rule?.retry_budget_scope === "per-file";
+      const key = isPerFile && v.filePath ? `${v.ruleId}::${v.filePath}` : v.ruleId;
+      this.failureCounts.set(key, (this.failureCounts.get(key) ?? 0) + 1);
     }
 
     return { ok: blockingViolations.length === 0, violations };
   }
 
-  /** Has any single rule been violated past the retry budget? Used to force
-   *  escalation instead of letting the agent loop forever against the same
-   *  wall. */
+  /** Has any single rule (or rule+file pair for per-file scope) been violated
+   *  past the retry budget? Used to force escalation instead of letting the
+   *  agent loop forever against the same wall. */
   exceededBudget(): RuleFailureRecord | null {
-    for (const [ruleId, count] of this.failureCounts.entries()) {
-      if (count > this.retryBudget) return { ruleId, count };
+    for (const [key, count] of this.failureCounts.entries()) {
+      if (count > this.retryBudget) {
+        // Extract the ruleId from either "ruleId" or "ruleId::filePath" keys
+        const ruleId = key.includes("::") ? key.split("::")[0] : key;
+        return { ruleId, count };
+      }
     }
     return null;
   }

@@ -23,6 +23,13 @@ export interface BaseRule {
   applies_to?: string | string[];
   /** if true, a violation blocks the action; if false, it's a warning only */
   blocking?: boolean; // default true
+  /**
+   * Controls how the retry budget is counted for this rule.
+   * "global"   — one shared counter across the whole run (default, matches MVP behaviour)
+   * "per-file" — a separate counter per file path; prevents a rule that legitimately
+   *              needs multiple attempts on N different files from tripping the same counter
+   */
+  retry_budget_scope?: "global" | "per-file";
 }
 
 export interface DiffScopeRule extends BaseRule {
@@ -93,6 +100,8 @@ export interface RuleViolation {
   ruleId: string;
   message: string;
   blocking: boolean;
+  /** Set for edit_file violations so the engine can scope retry budgets per file. */
+  filePath?: string;
 }
 
 export interface CheckResult {
