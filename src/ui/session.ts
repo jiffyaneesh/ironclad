@@ -16,6 +16,7 @@ import {
   printToolApplied,
   printToolRejected,
   printToolError,
+  printTaskDone,
   printEscalation,
 } from "./printer.js";
 
@@ -38,9 +39,10 @@ export async function startInteractiveSession(opts: SessionOptions) {
 
   try {
     while (true) {
-      const promptText = `${chalk.cyan.bold("ironclad")}${
-        declaredFiles.length ? chalk.dim(` [${declaredFiles.join(",")}]`) : ""
-      } ${chalk.green("❯")} `;
+      const scope = declaredFiles.length
+        ? chalk.hex("#7F8C8D")(` [${declaredFiles.join(",")}]`)
+        : "";
+      const promptText = `${chalk.hex("#C0392B").bold("ironclad")}${scope} ${chalk.hex("#E74C3C")("›")} `;
 
       const line = await rl.question(promptText);
       const trimmed = line.trim();
@@ -48,7 +50,7 @@ export async function startInteractiveSession(opts: SessionOptions) {
       if (!trimmed) continue;
 
       if (trimmed === "/exit" || trimmed === "/quit" || trimmed === "exit") {
-        console.log(chalk.dim("Goodbye!"));
+        console.log(chalk.hex("#7F8C8D")("\n  Goodbye.\n"));
         break;
       }
 
@@ -59,68 +61,64 @@ export async function startInteractiveSession(opts: SessionOptions) {
 
       if (trimmed === "/clear") {
         history = [];
-        console.log(chalk.dim("Conversation cleared.\n"));
+        clearScreen();
+        printBanner(llmInfo.provider, llmInfo.model, cwd, rules.length);
         continue;
       }
 
       if (trimmed.startsWith("/scope")) {
         const parts = trimmed.slice(6).trim();
         if (!parts) {
-          console.log(
-            chalk.dim(
-              `Current scope: ${
-                declaredFiles.length ? declaredFiles.join(", ") : "(none)"
-              }`
-            )
-          );
+          const current = declaredFiles.length ? declaredFiles.join(", ") : "(none — all files allowed)";
+          console.log(chalk.hex("#7F8C8D")(`\n  scope: ${current}\n`));
         } else {
           declaredFiles = parts.split(",").map((s) => s.trim());
-          console.log(chalk.green(`Scope updated: ${declaredFiles.join(", ")}\n`));
+          console.log(chalk.hex("#E74C3C")(`\n  ✔  Scope set: ${declaredFiles.join(", ")}\n`));
         }
         continue;
       }
 
-      // Execute agent loop for user's prompt
+      // ── Run agent ───────────────────────────────────────────────────────
       const engine = new RuleEngine(rules, cwd, { retryBudget: 3 });
       const spinner = ora({
-        text: "Thinking...",
-        color: "cyan",
+        prefixText: "  ",
+        color: "red",
+        spinner: "dots",
       });
 
       console.log();
-      spinner.start();
+      spinner.start(chalk.hex("#95A5A6")("Thinking…"));
 
       const result = await runAgent(trimmed, declaredFiles, engine, llmInfo.client, {
         cwd,
         history,
         events: {
           onTurnStart: (turn) => {
-            spinner.text = `Turn ${turn} — reasoning...`;
+            spinner.text = chalk.hex("#95A5A6")(`Turn ${turn}  —  reasoning…`);
           },
           onAssistantMessage: (text) => {
             spinner.stop();
             printAssistantMessage(text);
-            spinner.start();
           },
           onToolCall: (name, toolInput) => {
             spinner.stop();
             printToolCall(name, toolInput);
-            spinner.start();
+            spinner.start(chalk.hex("#95A5A6")("…"));
           },
-          onToolApplied: (name, detail) => {
+          onToolApplied: (_name, detail) => {
             spinner.stop();
             printToolApplied(detail);
-            spinner.start();
+            spinner.start(chalk.hex("#95A5A6")("…"));
           },
-          onToolRejected: (name, violations) => {
+          onToolRejected: (_name, violations) => {
             spinner.stop();
             printToolRejected(violations);
-            spinner.start();
+            spinner.start(chalk.hex("#95A5A6")("Retrying…"));
           },
-          onToolError: (name, err) => {
+          onToolError: (_name, err) => {
             spinner.stop();
             printToolError(err);
-            spinner.start();
+            spinner.start(chalk.hex("#95A5A6")("…"));
           },
         },
       });
@@ -129,11 +127,11 @@ export async function startInteractiveSession(opts: SessionOptions) {
       history = result.history;
 
       if (result.status === "complete") {
-        console.log(chalk.bold.green(`\n✔ ${result.summary ?? "Done."}\n`));
+        printTaskDone(result.summary ?? "Done.");
       } else if (result.status === "escalated") {
         printEscalation(result.rule ?? "unknown");
       } else if (result.status === "max_turns_reached") {
-        console.log(chalk.yellow("\nReached turn limit for this task.\n"));
+        console.log(chalk.yellow("\n  ⚠  Turn limit reached — task may be incomplete.\n"));
       }
     }
   } finally {

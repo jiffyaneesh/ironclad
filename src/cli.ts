@@ -13,6 +13,7 @@ import {
   printToolApplied,
   printToolRejected,
   printToolError,
+  printTaskDone,
   printEscalation,
 } from "./ui/printer.js";
 import ora from "ora";
@@ -110,12 +111,12 @@ async function main() {
   spinner.stop();
 
   if (result.status === "complete") {
-    console.log(chalk.bold.green(`\n✔ ${result.summary ?? "Done."}\n`));
+    printTaskDone(result.summary ?? "Done.");
   } else if (result.status === "escalated") {
     printEscalation(result.rule ?? "unknown");
     process.exitCode = 1;
   } else {
-    console.log(chalk.yellow(`\n[ironclad] run status: ${result.status}\n`));
+    console.log(chalk.yellow(`\n  ⚠  run status: ${result.status}\n`));
     process.exitCode = 1;
   }
 }
