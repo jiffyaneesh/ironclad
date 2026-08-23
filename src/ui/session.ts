@@ -31,6 +31,7 @@ import {
   getSuggestions,
   formatSuggestions,
 } from "./suggestions.js";
+import { promptWithLiveSuggestions } from "./livePrompt.js";
 
 export interface SessionOptions {
   rules: Rule[];        // initial rules (already merged) passed from cli.ts
@@ -60,15 +61,7 @@ export async function startInteractiveSession(opts: SessionOptions) {
   clearScreen();
   printBanner(llmInfo.provider, llmInfo.model, cwd, rules.length);
 
-  const rl = readline.createInterface({
-    input,
-    output,
-    completer,
-    tabSize: 2,
-  });
-
-  try {
-    while (true) {
+  while (true) {
       const scope = declaredFiles.length
         ? chalk.hex("#7F8C8D")(` [${declaredFiles.join(",")}]`)
         : "";
@@ -77,7 +70,7 @@ export async function startInteractiveSession(opts: SessionOptions) {
         : "";
       const prompt = `${chalk.hex("#C0392B").bold("ironclad")}${scope}${skillsBadge} ${chalk.hex("#E74C3C")("›")} `;
 
-      const line = await rl.question(prompt);
+      const line = await promptWithLiveSuggestions(prompt);
       const trimmed = line.trim();
 
       if (!trimmed) continue;
@@ -104,11 +97,16 @@ export async function startInteractiveSession(opts: SessionOptions) {
       }
 
       if (trimmed === "/rules add") {
-        const added = await runRuleWizard(rl, cwd);
-        if (added) {
-          // hot-reload so the new rule is active immediately
-          ({ global: globalRules, workspace: wsRules, merged: rules } = loadAllRules(cwd));
-          console.log(chalk.hex("#E74C3C")(`  ↻  Rules reloaded (${rules.length} active)\n`));
+        const wizardRl = readline.createInterface({ input, output });
+        try {
+          const added = await runRuleWizard(wizardRl, cwd);
+          if (added) {
+            // hot-reload so the new rule is active immediately
+            ({ global: globalRules, workspace: wsRules, merged: rules } = loadAllRules(cwd));
+            console.log(chalk.hex("#E74C3C")(`  ↻  Rules reloaded (${rules.length} active)\n`));
+          }
+        } finally {
+          wizardRl.close();
         }
         continue;
       }
@@ -238,7 +236,4 @@ export async function startInteractiveSession(opts: SessionOptions) {
         console.log(chalk.yellow("\n  ⚠  Turn limit reached — task may be incomplete.\n"));
       }
     }
-  } finally {
-    rl.close();
-  }
 }
