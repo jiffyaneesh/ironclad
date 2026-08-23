@@ -6,6 +6,7 @@ import {
   type Tool as GeminiTool,
   type FunctionDeclarationSchema,
 } from "@google/generative-ai";
+import { withRetry } from "./retry.js";
 import type {
   LLMClient,
   LLMMessage,
@@ -38,7 +39,9 @@ export class GeminiClient implements LLMClient {
     });
 
     const contents = toGeminiContents(messages);
-    const result = await geminiModel.generateContent({ contents });
+    const result = await withRetry(() =>
+      geminiModel.generateContent({ contents })
+    );
 
     return fromGeminiResponse(result.response.candidates?.[0]?.content);
   }

@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { withRetry } from "./retry.js";
 import type {
   LLMClient,
   LLMMessage,
@@ -22,13 +23,15 @@ export class AnthropicClient implements LLMClient {
     tools: ToolDefinition[],
     system: string
   ): Promise<LLMResponse> {
-    const response = await this.client.messages.create({
-      model: this.model,
-      max_tokens: 4096,
-      system,
-      tools: tools.map(toAnthropicTool),
-      messages: messages.map(toAnthropicMessage),
-    });
+    const response = await withRetry(() =>
+      this.client.messages.create({
+        model: this.model,
+        max_tokens: 4096,
+        system,
+        tools: tools.map(toAnthropicTool),
+        messages: messages.map(toAnthropicMessage),
+      })
+    );
 
     return {
       content: response.content.map(fromAnthropicBlock),

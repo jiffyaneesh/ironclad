@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { withRetry } from "./retry.js";
 import type {
   LLMClient,
   LLMMessage,
@@ -23,12 +24,14 @@ export class OpenAIClient implements LLMClient {
     tools: ToolDefinition[],
     system: string
   ): Promise<LLMResponse> {
-    const response = await this.client.chat.completions.create({
-      model: this.model,
-      messages: toOpenAIMessages(messages, system),
-      tools: tools.map(toOpenAITool),
-      tool_choice: "auto",
-    });
+    const response = await withRetry(() =>
+      this.client.chat.completions.create({
+        model: this.model,
+        messages: toOpenAIMessages(messages, system),
+        tools: tools.map(toOpenAITool),
+        tool_choice: "auto",
+      })
+    );
 
     return fromOpenAIChoice(response.choices[0]);
   }
