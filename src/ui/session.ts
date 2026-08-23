@@ -1,4 +1,5 @@
 import * as readline from "node:readline/promises";
+import { spawnSync } from "node:child_process";
 import { stdin as input, stdout as output } from "node:process";
 import ora from "ora";
 import chalk from "chalk";
@@ -7,10 +8,16 @@ import { RuleEngine } from "../engine.js";
 import { runAgent } from "../agent.js";
 import type { ResolvedLLMClient } from "../llm/index.js";
 import type { LLMMessage } from "../llm/types.js";
+import { loadRulesFile, mergeRules } from "../config/rulesManager.js";
+import { listSkills, createSkill, buildSkillsPrompt } from "../config/skillsManager.js";
+import type { Skill } from "../config/skillsManager.js";
+import { workspaceRules, GLOBAL_RULES } from "../config/paths.js";
+import { runRuleWizard } from "./ruleWizard.js";
 import {
   clearScreen,
   printBanner,
   printRules,
+  printSkills,
   printAssistantMessage,
   printToolCall,
   printToolApplied,
@@ -21,16 +28,29 @@ import {
 } from "./printer.js";
 
 export interface SessionOptions {
-  rules: Rule[];
+  rules: Rule[];        // initial rules (already merged) passed from cli.ts
   cwd: string;
   llmInfo: ResolvedLLMClient;
   initialFiles?: string[];
 }
 
+// ── Internal state helpers ────────────────────────────────────────────────
+
+function loadAllRules(cwd: string): { global: Rule[]; workspace: Rule[]; merged: Rule[] } {
+  const globalR    = loadRulesFile(GLOBAL_RULES);
+  const workspaceR = loadRulesFile(workspaceRules(cwd));
+  return { global: globalR, workspace: workspaceR, merged: mergeRules(globalR, workspaceR) };
+}
+
+// ── Main session ──────────────────────────────────────────────────────────
+
 export async function startInteractiveSession(opts: SessionOptions) {
-  const { rules, cwd, llmInfo } = opts;
+  const { cwd, llmInfo } = opts;
   let declaredFiles = opts.initialFiles ?? [];
   let history: LLMMessage[] = [];
+
+  let { global: globalRules, workspace: wsRules, merged: rules } = loadAllRules(cwd);
+  let skills: Skill[] = listSkills(cwd);
 
   clearScreen();
   printBanner(llmInfo.provider, llmInfo.model, cwd, rules.length);
@@ -42,21 +62,21 @@ export async function startInteractiveSession(opts: SessionOptions) {
       const scope = declaredFiles.length
         ? chalk.hex("#7F8C8D")(` [${declaredFiles.join(",")}]`)
         : "";
-      const promptText = `${chalk.hex("#C0392B").bold("ironclad")}${scope} ${chalk.hex("#E74C3C")("›")} `;
+      const skillsBadge = skills.length > 0
+        ? chalk.hex("#7F8C8D")(` +${skills.length}s`)
+        : "";
+      const prompt = `${chalk.hex("#C0392B").bold("ironclad")}${scope}${skillsBadge} ${chalk.hex("#E74C3C")("›")} `;
 
-      const line = await rl.question(promptText);
+      const line = await rl.question(prompt);
       const trimmed = line.trim();
 
       if (!trimmed) continue;
 
+      // ── Built-in commands ──────────────────────────────────────────────
+
       if (trimmed === "/exit" || trimmed === "/quit" || trimmed === "exit") {
         console.log(chalk.hex("#7F8C8D")("\n  Goodbye.\n"));
         break;
-      }
-
-      if (trimmed === "/rules") {
-        printRules(rules);
-        continue;
       }
 
       if (trimmed === "/clear") {
@@ -65,6 +85,25 @@ export async function startInteractiveSession(opts: SessionOptions) {
         printBanner(llmInfo.provider, llmInfo.model, cwd, rules.length);
         continue;
       }
+
+      // ── /rules ────────────────────────────────────────────────────────
+
+      if (trimmed === "/rules") {
+        printRules(globalRules, wsRules);
+        continue;
+      }
+
+      if (trimmed === "/rules add") {
+        const added = await runRuleWizard(rl, cwd);
+        if (added) {
+          // hot-reload so the new rule is active immediately
+          ({ global: globalRules, workspace: wsRules, merged: rules } = loadAllRules(cwd));
+          console.log(chalk.hex("#E74C3C")(`  ↻  Rules reloaded (${rules.length} active)\n`));
+        }
+        continue;
+      }
+
+      // ── /scope ────────────────────────────────────────────────────────
 
       if (trimmed.startsWith("/scope")) {
         const parts = trimmed.slice(6).trim();
@@ -78,20 +117,54 @@ export async function startInteractiveSession(opts: SessionOptions) {
         continue;
       }
 
-      // ── Run agent ───────────────────────────────────────────────────────
-      const engine = new RuleEngine(rules, cwd, { retryBudget: 3 });
-      const spinner = ora({
-        prefixText: "  ",
-        color: "red",
-        spinner: "dots",
-      });
+      // ── /skills ───────────────────────────────────────────────────────
 
+      if (trimmed === "/skills" || trimmed === "/skills list") {
+        printSkills(skills);
+        continue;
+      }
+
+      if (trimmed.startsWith("/skills add")) {
+        const rest     = trimmed.slice(11).trim();
+        const isGlobal = rest.startsWith("global ");
+        const name     = (isGlobal ? rest.slice(7) : rest).trim().replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
+        const scope    = isGlobal ? "global" : "workspace";
+
+        if (!name) {
+          console.log(chalk.dim("  Usage: /skills add <name>  or  /skills add global <name>\n"));
+          continue;
+        }
+
+        const skillPath = createSkill(name, scope, cwd);
+        console.log(chalk.dim(`  Opening ${skillPath} in $EDITOR…\n`));
+
+        const editor = process.env.EDITOR ?? process.env.VISUAL ?? "nano";
+        spawnSync(editor, [skillPath], { stdio: "inherit" });
+
+        skills = listSkills(cwd);
+        console.log(chalk.hex("#E74C3C")(`  ✔  Skill "${name}" loaded (${skills.length} active)\n`));
+        continue;
+      }
+
+      if (trimmed === "/skills reload") {
+        skills = listSkills(cwd);
+        console.log(chalk.hex("#E74C3C")(`  ↻  Skills reloaded (${skills.length} active)\n`));
+        continue;
+      }
+
+      // ── Run agent ─────────────────────────────────────────────────────
+
+      const engine = new RuleEngine(rules, cwd, { retryBudget: 3 });
+      const skillsContext = buildSkillsPrompt(skills);
+
+      const spinner = ora({ prefixText: "  ", color: "red", spinner: "dots" });
       console.log();
       spinner.start(chalk.hex("#95A5A6")("Thinking…"));
 
       const result = await runAgent(trimmed, declaredFiles, engine, llmInfo.client, {
         cwd,
         history,
+        systemExtra: skillsContext,
         events: {
           onTurnStart: (turn) => {
             spinner.text = chalk.hex("#95A5A6")(`Turn ${turn}  —  reasoning…`);

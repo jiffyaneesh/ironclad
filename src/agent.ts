@@ -24,6 +24,8 @@ export interface AgentOptions {
   maxTurns?: number;
   events?: AgentEvents;
   history?: LLMMessage[];
+  /** Extra context appended to the system prompt (e.g. active skills content). */
+  systemExtra?: string;
 }
 
 export interface AgentRunResult {
@@ -115,7 +117,7 @@ export async function runAgent(
         ? declaredFiles.join(", ")
         : "(all files allowed unless restricted by glob rules)"
     }`,
-  ].join(" ");
+  ].join(" ") + (opts.systemExtra ?? "");
 
   const messages: LLMMessage[] = opts.history
     ? [...opts.history, { role: "user", content: [{ type: "text", text: taskDescription }] }]

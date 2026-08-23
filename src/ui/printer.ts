@@ -91,27 +91,78 @@ export function printBanner(
   console.log();
 }
 
-// ── Rules list ────────────────────────────────────────────────────────────
-export function printRules(rules: Rule[]) {
+// ── Rules list (grouped by scope) ─────────────────────────────────────────
+export function printRules(
+  globalRules: Rule[],
+  workspaceRules: Rule[]
+) {
+  const all = globalRules.length + workspaceRules.length;
   console.log();
-  console.log(C.border("  ┌" + hr("─", 40) + "┐"));
-  console.log(C.border("  │") + chalk.bgHex(R.crimson).bold("  Active Guardrails" + " ".repeat(22)) + C.border("│"));
-  console.log(C.border("  ├" + hr("─", 40) + "┤"));
+  console.log(C.border("  ┌" + hr("─", 50) + "┐"));
+  console.log(
+    C.border("  │") +
+      chalk.bgHex(R.crimson).bold("  Active Rule Guardrails") +
+      C.dim(`  ${all} total`) +
+      " ".repeat(Math.max(0, 24 - String(all).length)) +
+      C.border("│")
+  );
+  console.log(C.border("  ├" + hr("─", 50) + "┤"));
 
-  if (rules.length === 0) {
-    console.log(C.border("  │") + C.dim("  No rules loaded from .rules.yaml") + "         " + C.border("│"));
+  if (all === 0) {
+    console.log("  " + C.dim("  No rules configured. Use /rules add to create one."));
   } else {
-    for (const rule of rules) {
-      const badge = rule.blocking
-        ? chalk.bgHex(R.crimson).bold(" BLOCK ")
-        : chalk.bgYellow.black.bold(" WARN  ");
-      const line = `  ${badge} ${C.white(rule.id)} ${C.dim("[" + rule.type + "]")}`;
-      const desc = rule.description ? C.dim("  " + rule.description) : "";
-      console.log("  " + line + desc);
+    printRuleGroup("workspace", workspaceRules);
+    printRuleGroup("global   ", globalRules);
+  }
+
+  console.log(C.border("  └" + hr("─", 50) + "┘"));
+  console.log(C.dim("  Tip: /rules add  —  create a new rule interactively"));
+  console.log();
+}
+
+function printRuleGroup(label: string, rules: Rule[]) {
+  if (rules.length === 0) return;
+  console.log(
+    "  " + C.dim(label) + "  " + C.dim(hr("·", 40))
+  );
+  for (const rule of rules) {
+    const badge = rule.blocking
+      ? chalk.bgHex(R.crimson).bold(" BLOCK ")
+      : chalk.bgYellow.black.bold(" WARN  ");
+    const desc = rule.description ? C.dim("  " + rule.description) : "";
+    console.log(`    ${badge} ${C.white(rule.id)} ${C.dim("[" + rule.type + "]")}${desc}`);
+  }
+}
+
+// ── Skills list ────────────────────────────────────────────────────────────
+export function printSkills(skills: import("../config/skillsManager.js").Skill[]) {
+  console.log();
+  console.log(C.border("  ┌" + hr("─", 50) + "┐"));
+  console.log(
+    C.border("  │") +
+      chalk.bgHex(R.crimson).bold("  Active Skills") +
+      C.dim(`  ${skills.length} loaded`) +
+      " ".repeat(Math.max(0, 32 - String(skills.length).length)) +
+      C.border("│")
+  );
+  console.log(C.border("  ├" + hr("─", 50) + "┤"));
+
+  if (skills.length === 0) {
+    console.log("  " + C.dim("  No skills loaded. Use /skills add <name> to create one."));
+  } else {
+    const byScope = { workspace: skills.filter((s) => s.scope === "workspace"), global: skills.filter((s) => s.scope === "global") };
+    for (const [scope, group] of Object.entries(byScope) as [string, typeof skills][]) {
+      if (group.length === 0) continue;
+      console.log("  " + C.dim(scope + " ".repeat(9 - scope.length)) + "  " + C.dim(hr("·", 37)));
+      for (const skill of group) {
+        const lines = skill.content.split("\n").length;
+        console.log(`    ${C.rose("◆")} ${C.white(skill.name)}  ${C.dim(skill.path + "  (" + lines + " lines)")}`);
+      }
     }
   }
 
-  console.log(C.border("  └" + hr("─", 40) + "┘"));
+  console.log(C.border("  └" + hr("─", 50) + "┘"));
+  console.log(C.dim("  Tip: /skills add <name>  or  /skills add global <name>"));
   console.log();
 }
 
