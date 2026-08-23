@@ -26,6 +26,11 @@ import {
   printTaskDone,
   printEscalation,
 } from "./printer.js";
+import {
+  completer,
+  getSuggestions,
+  formatSuggestions,
+} from "./suggestions.js";
 
 export interface SessionOptions {
   rules: Rule[];        // initial rules (already merged) passed from cli.ts
@@ -55,7 +60,12 @@ export async function startInteractiveSession(opts: SessionOptions) {
   clearScreen();
   printBanner(llmInfo.provider, llmInfo.model, cwd, rules.length);
 
-  const rl = readline.createInterface({ input, output });
+  const rl = readline.createInterface({
+    input,
+    output,
+    completer,
+    tabSize: 2,
+  });
 
   try {
     while (true) {
@@ -149,6 +159,27 @@ export async function startInteractiveSession(opts: SessionOptions) {
       if (trimmed === "/skills reload") {
         skills = listSkills(cwd);
         console.log(chalk.hex("#E74C3C")(`  ↻  Skills reloaded (${skills.length} active)\n`));
+        continue;
+      }
+
+      if (trimmed === "/help" || trimmed === "/?") {
+        const matches = getSuggestions("/");
+        console.log("\n" + formatSuggestions(matches) + "\n");
+        continue;
+      }
+
+      // If user typed an unknown slash command, show intellisense suggestions
+      if (trimmed.startsWith("/")) {
+        const matches = getSuggestions(trimmed);
+        if (matches.length > 0) {
+          console.log("\n" + formatSuggestions(matches) + "\n");
+        } else {
+          console.log(
+            chalk.hex("#E74C3C")(
+              `\n  Unknown command "${trimmed}". Type /help to see all available commands.\n`
+            )
+          );
+        }
         continue;
       }
 

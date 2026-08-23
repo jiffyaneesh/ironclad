@@ -81,10 +81,10 @@ export function printBanner(
 
   // commands row
   const cmds =
-    `  ${C.rose("/rules")} ${C.dim("inspect")}  ` +
-    `${C.rose("/scope <files>")} ${C.dim("restrict")}  ` +
-    `${C.rose("/clear")} ${C.dim("reset")}  ` +
-    `${C.rose("/exit")} ${C.dim("quit")}`;
+    `  ${C.rose("/rules")} ${C.dim("rules")}  ` +
+    `${C.rose("/skills")} ${C.dim("skills")}  ` +
+    `${C.rose("/help")} ${C.dim("commands")}  ` +
+    `${C.rose("Tab")} ${C.dim("autocomplete")}`;
   console.log(box(pad(cmds)));
 
   console.log(C.border("  ╚" + hr("═") + "╝"));
