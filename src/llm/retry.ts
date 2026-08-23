@@ -29,9 +29,9 @@ export async function withRetry<T>(
   fn: () => Promise<T>,
   options: RetryOptions = {}
 ): Promise<T> {
-  const maxRetries = options.maxRetries ?? 4;
-  const initialDelay = options.initialDelayMs ?? 1500;
-  const maxDelay = options.maxDelayMs ?? 20000;
+  const maxRetries = options.maxRetries ?? 5;
+  const initialDelay = options.initialDelayMs ?? 2000;
+  const maxDelay = options.maxDelayMs ?? 30000;
   const factor = options.backoffFactor ?? 2;
   const jitter = options.jitterFactor ?? 0.25;
 
@@ -46,10 +46,15 @@ export async function withRetry<T>(
         throw err;
       }
 
-      // Calculate exponential backoff with jitter
-      const expDelay = initialDelay * Math.pow(factor, attempt);
+      const isQuotaError = /quota|resource_exhausted|429/i.test(
+        err instanceof Error ? err.message : String(err)
+      );
+
+      // If it's a quota / rate limit error, use a more patient backoff
+      const baseDelay = isQuotaError ? Math.max(initialDelay, 3000) : initialDelay;
+      const expDelay = baseDelay * Math.pow(factor, attempt);
       const jitterDelta = expDelay * jitter * (Math.random() * 2 - 1);
-      const delayMs = Math.min(maxDelay, Math.max(100, Math.round(expDelay + jitterDelta)));
+      const delayMs = Math.min(maxDelay, Math.max(500, Math.round(expDelay + jitterDelta)));
 
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }

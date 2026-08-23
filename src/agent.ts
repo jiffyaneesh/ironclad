@@ -1,6 +1,7 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { truncateOutput } from "./util/truncate.js";
+import { compactHistory } from "./util/compaction.js";
 import type {
   LLMClient,
   LLMMessage,
@@ -154,7 +155,9 @@ export async function runAgent(
   for (let turn = 0; turn < maxTurns; turn++) {
     events.onTurnStart?.(turn + 1);
 
-    const response = await llm.chat(messages, TOOLS, system);
+    // Compact older tool results to conserve TPM quota and stay within token limits
+    const optimizedMessages = compactHistory(messages, 2);
+    const response = await llm.chat(optimizedMessages, TOOLS, system);
     messages.push({ role: "assistant", content: response.content });
 
     const toolUses = response.content.filter(
