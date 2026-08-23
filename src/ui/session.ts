@@ -32,6 +32,12 @@ import {
   formatSuggestions,
 } from "./suggestions.js";
 import { promptWithLiveSuggestions } from "./livePrompt.js";
+import {
+  handleCommitCommand,
+  handleReviewCommand,
+  handleUndoCommand,
+  handleModelSwitch,
+} from "./commands.js";
 
 export interface SessionOptions {
   rules: Rule[];        // initial rules (already merged) passed from cli.ts
@@ -51,7 +57,8 @@ function loadAllRules(cwd: string): { global: Rule[]; workspace: Rule[]; merged:
 // ── Main session ──────────────────────────────────────────────────────────
 
 export async function startInteractiveSession(opts: SessionOptions) {
-  const { cwd, llmInfo } = opts;
+  const { cwd } = opts;
+  let llmInfo = opts.llmInfo;
   let declaredFiles = opts.initialFiles ?? [];
   let history: LLMMessage[] = [];
 
@@ -157,6 +164,32 @@ export async function startInteractiveSession(opts: SessionOptions) {
       if (trimmed === "/skills reload") {
         skills = listSkills(cwd);
         console.log(chalk.hex("#E74C3C")(`  ↻  Skills reloaded (${skills.length} active)\n`));
+        continue;
+      }
+
+      // ── /commit ───────────────────────────────────────────────────────
+      if (trimmed.startsWith("/commit")) {
+        const msg = trimmed.slice(7).trim() || undefined;
+        handleCommitCommand(cwd, rules, msg);
+        continue;
+      }
+
+      // ── /review ───────────────────────────────────────────────────────
+      if (trimmed === "/review") {
+        handleReviewCommand(cwd, rules);
+        continue;
+      }
+
+      // ── /undo ─────────────────────────────────────────────────────────
+      if (trimmed === "/undo" || trimmed === "/revert") {
+        handleUndoCommand(cwd);
+        continue;
+      }
+
+      // ── /model ────────────────────────────────────────────────────────
+      if (trimmed.startsWith("/model")) {
+        const arg = trimmed.slice(6).trim();
+        llmInfo = handleModelSwitch(arg, llmInfo);
         continue;
       }
 

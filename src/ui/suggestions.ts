@@ -14,6 +14,10 @@ export const BUILTIN_COMMANDS: CommandSuggestion[] = [
   { command: "/skills add global", description: "Create a global skill in ~/.ironclad/skills/" },
   { command: "/skills reload", description: "Hot-reload skills from disk" },
   { command: "/scope", description: "Set or inspect declared file scope (e.g. /scope src/cli.ts)" },
+  { command: "/commit", description: "Verify rule gates and make a git commit" },
+  { command: "/review", description: "Audit uncommitted changes against active rules" },
+  { command: "/undo", description: "Revert uncommitted changes in working directory" },
+  { command: "/model", description: "Switch LLM provider/model (e.g. /model openai gpt-4o)" },
   { command: "/clear", description: "Clear conversation history & reset terminal" },
   { command: "/exit", description: "Exit Ironclad session" },
 ];

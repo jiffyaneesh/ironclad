@@ -60,6 +60,31 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "grep_search",
+    description: "Search for regex patterns across files in the workspace (fast code search).",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Regex pattern or keyword to search for" },
+        path: { type: "string", description: "Directory to search within (default: .)" },
+        include: { type: "string", description: "File glob filter, e.g. '*.ts'" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "find_files",
+    description: "Find file paths matching a glob pattern across the workspace (e.g. '**/*.ts', 'src/**/*.test.ts').",
+    parameters: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Glob pattern to match" },
+        path: { type: "string", description: "Root directory for the search (default: .)" },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
     name: "edit_file",
     description:
       "Create or edit a file. Supports both surgical search-and-replace (provide path + old_string + new_string) " +
@@ -224,6 +249,92 @@ async function handleToolUse(
       });
       const truncated = truncateOutput(entries.join("\n"));
       events.onToolApplied?.(use.name, `Listed ${relPath} (${entries.length} items)`);
+      return { type: "tool_result", tool_use_id: use.id, content: truncated.content };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      events.onToolError?.(use.name, msg);
+      return { type: "tool_result", tool_use_id: use.id, is_error: true, content: msg };
+    }
+  }
+
+  if (use.name === "grep_search") {
+    const query = input.query as string;
+    const searchDir = join(cwd, (input.path as string) || ".");
+    const includeFilter = input.include as string | undefined;
+
+    if (!existsSync(searchDir)) {
+      events.onToolError?.(use.name, `Directory not found: ${input.path || "."}`);
+      return { type: "tool_result", tool_use_id: use.id, is_error: true, content: `Directory not found: ${input.path || "."}` };
+    }
+
+    try {
+      const { execSync } = await import("node:child_process");
+      const globFlag = includeFilter ? `--glob "${includeFilter}"` : "";
+      let rawOut = "";
+      try {
+        rawOut = execSync(`rg -n ${globFlag} "${query.replace(/"/g, '\\"')}" .`, {
+          cwd: searchDir,
+          stdio: "pipe",
+          timeout: 20_000,
+        }).toString();
+      } catch (rgErr: any) {
+        if (rgErr.status === 1) {
+          rawOut = "No matches found.";
+        } else {
+          try {
+            rawOut = execSync(`grep -rn "${query.replace(/"/g, '\\"')}" .`, {
+              cwd: searchDir,
+              stdio: "pipe",
+              timeout: 20_000,
+            }).toString();
+          } catch (grepErr: any) {
+            rawOut = grepErr.status === 1 ? "No matches found." : (grepErr.stderr?.toString() ?? "Search error");
+          }
+        }
+      }
+
+      const truncated = truncateOutput(rawOut || "No matches found.");
+      events.onToolApplied?.(use.name, `grep "${query}" (${truncated.totalLines} lines)`);
+      return { type: "tool_result", tool_use_id: use.id, content: truncated.content };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      events.onToolError?.(use.name, msg);
+      return { type: "tool_result", tool_use_id: use.id, is_error: true, content: msg };
+    }
+  }
+
+  if (use.name === "find_files") {
+    const pattern = input.pattern as string;
+    const baseDir = join(cwd, (input.path as string) || ".");
+
+    if (!existsSync(baseDir)) {
+      events.onToolError?.(use.name, `Directory not found: ${input.path || "."}`);
+      return { type: "tool_result", tool_use_id: use.id, is_error: true, content: `Directory not found: ${input.path || "."}` };
+    }
+
+    try {
+      const { minimatch } = await import("minimatch");
+      const collectFiles = (dir: string, relBase = ""): string[] => {
+        const entries = readdirSync(dir, { withFileTypes: true });
+        const files: string[] = [];
+        for (const entry of entries) {
+          if (entry.name === "node_modules" || entry.name === ".git" || entry.name === "dist") continue;
+          const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) {
+            files.push(...collectFiles(join(dir, entry.name), relPath));
+          } else {
+            if (minimatch(relPath, pattern, { dot: true })) {
+              files.push(relPath);
+            }
+          }
+        }
+        return files;
+      };
+
+      const matches = collectFiles(baseDir);
+      const output = matches.length ? matches.join("\n") : "No files matched pattern";
+      const truncated = truncateOutput(output);
+      events.onToolApplied?.(use.name, `Matched ${matches.length} files`);
       return { type: "tool_result", tool_use_id: use.id, content: truncated.content };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
