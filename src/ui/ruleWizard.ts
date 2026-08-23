@@ -106,6 +106,24 @@ async function buildCommandGateRule(
   return { ...base, type: "command-gate", command, trigger };
 }
 
+async function buildCommandForbidRule(
+  rl: readline.Interface,
+  base: Pick<Rule, "id" | "description" | "blocking">
+): Promise<import("../types.js").CommandForbidRule> {
+  const pattern = await ask(rl, "Forbidden shell command regex (e.g. rm\\s+-rf|sudo|push\\s+--force)");
+  const flags   = await ask(rl, "Regex flags", "i");
+  return { ...base, type: "command-forbid", pattern, ...(flags ? { flags } : {}) };
+}
+
+async function buildPathProtectRule(
+  rl: readline.Interface,
+  base: Pick<Rule, "id" | "description" | "blocking">
+): Promise<import("../types.js").PathProtectRule> {
+  const pathsStr = await ask(rl, "Protected file paths/globs (comma-separated, e.g. .env,.git/**,package-lock.json)", ".env");
+  const paths = pathsStr.split(",").map((s) => s.trim()).filter(Boolean);
+  return { ...base, type: "path-protect", paths };
+}
+
 // ── Main wizard ────────────────────────────────────────────────────────────
 
 export async function runRuleWizard(
@@ -127,11 +145,13 @@ export async function runRuleWizard(
   // 2. type
   const typeIdx = await choose(rl, "Rule type:", [
     `diff-scope       ${chalk.dim("— restrict which files the agent can edit")}`,
-    `pattern-forbid   ${chalk.dim("— block commits that add a forbidden pattern")}`,
+    `pattern-forbid   ${chalk.dim("— block edits that add a forbidden pattern")}`,
     `pattern-require  ${chalk.dim("— require added code to include a pattern")}`,
     `command-gate     ${chalk.dim("— gate task completion on a command (tests, lint…)")}`,
+    `command-forbid   ${chalk.dim("— block dangerous shell commands (rm -rf, sudo, force push)")}`,
+    `path-protect     ${chalk.dim("— lock sensitive files from any modifications (.env, etc.)")}`,
   ]);
-  const types: RuleTypeKey[] = ["diff-scope", "pattern-forbid", "pattern-require", "command-gate"];
+  const types = ["diff-scope", "pattern-forbid", "pattern-require", "command-gate", "command-forbid", "path-protect"] as const;
   const type = types[typeIdx];
 
   // 3. shared fields
@@ -147,7 +167,9 @@ export async function runRuleWizard(
   if (type === "diff-scope")        rule = await buildDiffScopeRule(rl, base);
   else if (type === "pattern-forbid") rule = await buildPatternForbidRule(rl, base);
   else if (type === "pattern-require") rule = await buildPatternRequireRule(rl, base);
-  else                               rule = await buildCommandGateRule(rl, base);
+  else if (type === "command-gate")    rule = await buildCommandGateRule(rl, base);
+  else if (type === "command-forbid")  rule = await buildCommandForbidRule(rl, base);
+  else                                rule = await buildPathProtectRule(rl, base);
 
   // 5. preview
   console.log();

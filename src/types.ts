@@ -13,7 +13,9 @@ export type RuleType =
   | "diff-scope" // restrict which files/paths may be touched
   | "pattern-forbid" // reject content matching a forbidden pattern
   | "pattern-require" // require content to match a pattern (e.g. error handling present)
-  | "command-gate"; // an external command must exit 0 before an action/task is accepted
+  | "command-gate" // an external command must exit 0 before an action/task is accepted
+  | "command-forbid" // block execution of shell commands matching a forbidden regex/pattern
+  | "path-protect"; // forbid editing or deleting specified sensitive file paths/globs
 
 export interface BaseRule {
   id: string;
@@ -65,7 +67,25 @@ export interface CommandGateRule extends BaseRule {
   timeout_ms?: number;
 }
 
-export type Rule = DiffScopeRule | PatternForbidRule | PatternRequireRule | CommandGateRule;
+export interface CommandForbidRule extends BaseRule {
+  type: "command-forbid";
+  pattern: string; // regex tested against proposed shell command string
+  flags?: string;
+}
+
+export interface PathProtectRule extends BaseRule {
+  type: "path-protect";
+  /** List of globs or exact filenames that can never be modified (e.g. [".env", ".git/**", "package-lock.json"]) */
+  paths: string[];
+}
+
+export type Rule =
+  | DiffScopeRule
+  | PatternForbidRule
+  | PatternRequireRule
+  | CommandGateRule
+  | CommandForbidRule
+  | PathProtectRule;
 
 export interface RuleFile {
   rules: Rule[];

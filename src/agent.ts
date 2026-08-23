@@ -1,5 +1,6 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { truncateOutput } from "./util/truncate.js";
 import type {
   LLMClient,
   LLMMessage,
@@ -61,16 +62,18 @@ const TOOLS: ToolDefinition[] = [
   {
     name: "edit_file",
     description:
-      "Create or overwrite a file with new content. This will be checked against project " +
-      "rules (scope, forbidden patterns, etc.) before it is applied. If it's rejected, you'll " +
-      "get back the specific reason and can revise your approach.",
+      "Create or edit a file. Supports both surgical search-and-replace (provide path + old_string + new_string) " +
+      "or full replacement (provide path + content). This is checked against project rules (scope, forbidden patterns, protected paths) " +
+      "before anything is written to disk.",
     parameters: {
       type: "object",
       properties: {
         path: { type: "string", description: "Path relative to the repo root" },
-        content: { type: "string", description: "Full new file content" },
+        content: { type: "string", description: "Full new file content (for creating or rewriting full file)" },
+        old_string: { type: "string", description: "Exact text snippet to replace in existing file" },
+        new_string: { type: "string", description: "Replacement text snippet" },
       },
-      required: ["path", "content"],
+      required: ["path"],
     },
   },
   {
@@ -197,8 +200,9 @@ async function handleToolUse(
     }
     try {
       const content = readFileSync(fullPath, "utf-8");
-      events.onToolApplied?.(use.name, `Read ${relPath} (${content.split("\n").length} lines)`);
-      return { type: "tool_result", tool_use_id: use.id, content };
+      const truncated = truncateOutput(content);
+      events.onToolApplied?.(use.name, `Read ${relPath} (${truncated.totalLines} lines)`);
+      return { type: "tool_result", tool_use_id: use.id, content: truncated.content };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       events.onToolError?.(use.name, msg);
@@ -218,8 +222,9 @@ async function handleToolUse(
         const isDir = statSync(join(fullPath, entry)).isDirectory();
         return `${entry}${isDir ? "/" : ""}`;
       });
+      const truncated = truncateOutput(entries.join("\n"));
       events.onToolApplied?.(use.name, `Listed ${relPath} (${entries.length} items)`);
-      return { type: "tool_result", tool_use_id: use.id, content: entries.join("\n") };
+      return { type: "tool_result", tool_use_id: use.id, content: truncated.content };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       events.onToolError?.(use.name, msg);
@@ -229,11 +234,50 @@ async function handleToolUse(
 
   if (use.name === "edit_file") {
     const filePath = join(cwd, input.path as string);
-    const previousContent = existsSync(filePath) ? readFileSync(filePath, "utf-8") : undefined;
+    const fileExists = existsSync(filePath);
+    const previousContent = fileExists ? readFileSync(filePath, "utf-8") : undefined;
+
+    let targetContent = input.content as string | undefined;
+
+    // Handle surgical replacement if old_string is provided
+    if (input.old_string !== undefined && input.new_string !== undefined) {
+      if (!fileExists || previousContent === undefined) {
+        events.onToolError?.(use.name, `Cannot search/replace: file does not exist at ${input.path}`);
+        return {
+          type: "tool_result",
+          tool_use_id: use.id,
+          is_error: true,
+          content: `File "${input.path}" does not exist. Use content parameter to create a new file.`,
+        };
+      }
+      const oldStr = input.old_string as string;
+      const newStr = input.new_string as string;
+      if (!previousContent.includes(oldStr)) {
+        events.onToolError?.(use.name, `old_string not found in ${input.path}`);
+        return {
+          type: "tool_result",
+          tool_use_id: use.id,
+          is_error: true,
+          content: `Target text (old_string) was not found in ${input.path}. Inspect the file with read_file first.`,
+        };
+      }
+      targetContent = previousContent.replace(oldStr, newStr);
+    }
+
+    if (targetContent === undefined) {
+      events.onToolError?.(use.name, `Missing content or old_string/new_string for ${input.path}`);
+      return {
+        type: "tool_result",
+        tool_use_id: use.id,
+        is_error: true,
+        content: `Either content OR (old_string and new_string) must be specified for edit_file.`,
+      };
+    }
+
     const action: ProposedAction = {
       kind: "edit_file",
       path: input.path as string,
-      content: input.content as string,
+      content: targetContent,
       previousContent,
     };
 
@@ -245,24 +289,37 @@ async function handleToolUse(
     }
 
     mkdirSync(dirname(filePath), { recursive: true });
-    writeFileSync(filePath, input.content as string);
+    writeFileSync(filePath, targetContent);
     events.onToolApplied?.(use.name, `Updated ${input.path}`);
     return { type: "tool_result", tool_use_id: use.id, content: "applied" };
   }
 
   if (use.name === "run_command") {
+    const cmdAction: ProposedAction = {
+      kind: "run_command",
+      command: input.command as string,
+    };
+    const check = engine.check(cmdAction, ctx);
+    if (!check.ok) {
+      events.onToolRejected?.(use.name, check.violations);
+      const reasons = check.violations.map((v) => `- [${v.ruleId}] ${v.message}`).join("\n");
+      return { type: "tool_result", tool_use_id: use.id, is_error: true, content: reasons };
+    }
+
     const { execSync } = await import("node:child_process");
     try {
-      const out = execSync(input.command as string, {
+      const rawOut = execSync(input.command as string, {
         cwd,
         stdio: "pipe",
         timeout: 60_000,
       }).toString();
+      const out = truncateOutput(rawOut || "(no output)").content;
       events.onToolApplied?.(use.name, `Ran: ${input.command}`);
-      return { type: "tool_result", tool_use_id: use.id, content: out || "(no output)" };
+      return { type: "tool_result", tool_use_id: use.id, content: out };
     } catch (err: unknown) {
       const e = err as { stdout?: Buffer; stderr?: Buffer };
-      const out = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
+      const rawOut = (e.stdout?.toString() ?? "") + (e.stderr?.toString() ?? "");
+      const out = truncateOutput(rawOut).content;
       events.onToolError?.(use.name, `Exit failure for: ${input.command}`);
       return { type: "tool_result", tool_use_id: use.id, is_error: true, content: out };
     }

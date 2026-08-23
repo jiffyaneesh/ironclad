@@ -2,6 +2,7 @@ import type { CheckResult, ProposedAction, Rule, RuleViolation, TaskContext } fr
 import { checkDiffScope } from "./rules/diffScope.js";
 import { checkPatternForbid, checkPatternRequire } from "./rules/pattern.js";
 import { checkCommandGate } from "./rules/commandGate.js";
+import { checkCommandForbid, checkPathProtect } from "./rules/guard.js";
 
 export interface RuleFailureRecord {
   ruleId: string;
@@ -46,8 +47,19 @@ export class RuleEngine {
           v = checkPatternForbid(rule, action);
         } else if (rule.type === "pattern-require") {
           v = checkPatternRequire(rule, action);
+        } else if (rule.type === "path-protect") {
+          v = checkPathProtect(rule, action);
         }
         if (v) violations.push({ ...v, filePath: action.path });
+      }
+    }
+
+    if (action.kind === "run_command") {
+      for (const rule of this.rules) {
+        if (rule.type === "command-forbid") {
+          const v = checkCommandForbid(rule, action);
+          if (v) violations.push(v);
+        }
       }
     }
 
