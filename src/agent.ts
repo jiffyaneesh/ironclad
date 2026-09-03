@@ -28,6 +28,10 @@ export interface AgentOptions {
   history?: LLMMessage[];
   /** Extra context appended to the system prompt (e.g. active skills content). */
   systemExtra?: string;
+  /** Active rules available to the agent (passed to subagent delegations). */
+  rules?: import("./types.js").Rule[];
+  /** LLM client instance (passed to subagent delegations). */
+  llm?: LLMClient;
 }
 
 export interface AgentRunResult {
@@ -112,6 +116,24 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: "delegate_task",
+    description:
+      "Spawn an isolated subagent to perform a focused subtask (e.g. codebase exploration, test running, specialized refactoring). " +
+      "The subagent runs in its own context window with its own independent rule budget and reports back a concise summary.",
+    parameters: {
+      type: "object",
+      properties: {
+        task: { type: "string", description: "Clear, detailed prompt instructions for the subagent" },
+        files: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of declared files this subagent is allowed to touch",
+        },
+      },
+      required: ["task"],
+    },
+  },
+  {
     name: "task_complete",
     description:
       "Declare the task finished. This triggers any on_task_complete rule gates (e.g. tests " +
@@ -179,7 +201,7 @@ export async function runAgent(
     for (const use of toolUses) {
       events.onToolCall?.(use.name, use.input);
 
-      const result = await handleToolUse(use, engine, ctx, opts.cwd, events);
+      const result = await handleToolUse(use, engine, ctx, opts.cwd, events, opts.rules, llm);
       toolResults.push(result);
 
       if (use.name === "task_complete" && !result.is_error) {
@@ -215,7 +237,9 @@ async function handleToolUse(
   engine: RuleEngine,
   ctx: TaskContext,
   cwd: string,
-  events: AgentEvents
+  events: AgentEvents,
+  rules?: import("./types.js").Rule[],
+  llm?: LLMClient
 ): Promise<ToolResultPart> {
   const { input } = use;
 
@@ -452,6 +476,39 @@ async function handleToolUse(
     }
     events.onToolApplied?.(use.name, `Task complete: ${input.summary}`);
     return { type: "tool_result", tool_use_id: use.id, content: "accepted" };
+  }
+
+  if (use.name === "delegate_task") {
+    if (!llm || !rules) {
+      events.onToolError?.(use.name, "Subagent delegation unavailable (missing LLM or rules context)");
+      return {
+        type: "tool_result",
+        tool_use_id: use.id,
+        is_error: true,
+        content: "Subagent delegation unavailable in current context.",
+      };
+    }
+
+    const taskStr = input.task as string;
+    const subFiles = (input.files as string[]) || [];
+    const { runSubagent } = await import("./subagent.js");
+
+    events.onToolApplied?.(use.name, `Spawning subagent: "${taskStr.slice(0, 40)}..."`);
+    const subResult = await runSubagent({
+      task: taskStr,
+      cwd,
+      llm,
+      rules,
+      declaredFiles: subFiles,
+      maxTurns: 10,
+    });
+
+    const summary = subResult.summary || (subResult.status === "complete" ? "Subtask finished successfully." : `Subtask ended with status: ${subResult.status}`);
+    return {
+      type: "tool_result",
+      tool_use_id: use.id,
+      content: `[Subagent Result]: ${summary}`,
+    };
   }
 
   return {

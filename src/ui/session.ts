@@ -193,6 +193,60 @@ export async function startInteractiveSession(opts: SessionOptions) {
         continue;
       }
 
+      // ── /delegate ─────────────────────────────────────────────────────
+      if (trimmed.startsWith("/delegate")) {
+        const subTask = trimmed.slice(9).trim();
+        if (!subTask) {
+          console.log(chalk.dim("\n  Usage: /delegate <task description>\n  Example: /delegate find all unhandled promise rejections in src/\n"));
+          continue;
+        }
+
+        const { runSubagent } = await import("../subagent.js");
+        const subSpinner = ora({ prefixText: "  ", color: "magenta", spinner: "dots" });
+        console.log();
+        subSpinner.start(chalk.hex("#E056FD")("Subagent executing…"));
+
+        const subResult = await runSubagent({
+          task: subTask,
+          cwd,
+          llm: llmInfo.client,
+          rules,
+          declaredFiles,
+          events: {
+            onTurnStart: (t) => {
+              subSpinner.text = chalk.hex("#E056FD")(`Subagent turn ${t}…`);
+            },
+            onToolCall: (name, toolInput) => {
+              subSpinner.stop();
+              printToolCall(name, toolInput);
+              subSpinner.start(chalk.hex("#E056FD")("…"));
+            },
+            onToolApplied: (_name, detail) => {
+              subSpinner.stop();
+              printToolApplied(detail);
+              subSpinner.start(chalk.hex("#E056FD")("…"));
+            },
+            onToolRejected: (_name, violations) => {
+              subSpinner.stop();
+              printToolRejected(violations);
+              subSpinner.start(chalk.hex("#E056FD")("Retrying…"));
+            },
+            onAssistantMessage: (text) => {
+              subSpinner.stop();
+              printAssistantMessage(`[Subagent]:\n${text}`);
+            },
+          },
+        });
+
+        subSpinner.stop();
+        if (subResult.status === "complete") {
+          printTaskDone(subResult.summary || "Subtask completed successfully.");
+        } else {
+          console.log(chalk.yellow(`\n  Subagent finished with status: ${subResult.status}\n`));
+        }
+        continue;
+      }
+
       if (trimmed === "/help" || trimmed === "/?") {
         const matches = getSuggestions("/");
         console.log("\n" + formatSuggestions(matches) + "\n");
@@ -227,6 +281,8 @@ export async function startInteractiveSession(opts: SessionOptions) {
         cwd,
         history,
         systemExtra: skillsContext,
+        rules,
+        llm: llmInfo.client,
         events: {
           onTurnStart: (turn) => {
             spinner.text = chalk.hex("#95A5A6")(`Turn ${turn}  —  reasoning…`);

@@ -225,7 +225,10 @@ function toolIcon(name: string): string {
     read_file:     "📄",
     edit_file:     "✏️ ",
     list_dir:      "📂",
+    grep_search:   "🔍",
+    find_files:    "🔎",
     run_command:   "⚙️ ",
+    delegate_task: "🤖",
     task_complete: "🏁",
   };
   return icons[name] ?? "⚡";
@@ -235,6 +238,9 @@ function formatToolInput(toolName: string, input: Record<string, unknown>): stri
   if (toolName === "edit_file" || toolName === "read_file") return String(input.path ?? "");
   if (toolName === "run_command") return String(input.command ?? "");
   if (toolName === "list_dir") return String(input.path ?? ".");
+  if (toolName === "grep_search") return String(input.query ?? "");
+  if (toolName === "find_files") return String(input.pattern ?? "");
+  if (toolName === "delegate_task") return String(input.task ?? "");
   if (toolName === "task_complete") return String(input.summary ?? "");
   return JSON.stringify(input);
 }

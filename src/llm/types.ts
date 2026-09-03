@@ -45,6 +45,7 @@ export interface LLMMessage {
 export interface ToolProperty {
   type: string;
   description?: string;
+  items?: { type: string };
 }
 
 export interface ToolDefinition {

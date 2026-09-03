@@ -76,6 +76,8 @@ async function main() {
 
   const result = await runAgent(task, files, engine, llmInfo.client, {
     cwd,
+    rules,
+    llm: llmInfo.client,
     events: {
       onTurnStart: (turn) => {
         spinner.text = `Turn ${turn}...`;

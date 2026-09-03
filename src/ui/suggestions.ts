@@ -18,6 +18,7 @@ export const BUILTIN_COMMANDS: CommandSuggestion[] = [
   { command: "/review", description: "Audit uncommitted changes against active rules" },
   { command: "/undo", description: "Revert uncommitted changes in working directory" },
   { command: "/model", description: "Switch LLM provider/model (e.g. /model openai gpt-4o)" },
+  { command: "/delegate", description: "Spawn a dedicated subagent for a focused subtask" },
   { command: "/clear", description: "Clear conversation history & reset terminal" },
   { command: "/exit", description: "Exit Ironclad session" },
 ];
