@@ -1,4 +1,5 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { captureSnapshot } from "./snapshot/index.js";
 import { dirname, join, relative } from "node:path";
 import { truncateOutput } from "./util/truncate.js";
 import { compactHistory } from "./util/compaction.js";
@@ -424,6 +425,11 @@ async function handleToolUse(
       events.onToolRejected?.(use.name, check.violations);
       const reasons = check.violations.map((v) => `- [${v.ruleId}] ${v.message}`).join("\n");
       return { type: "tool_result", tool_use_id: use.id, is_error: true, content: reasons };
+    }
+
+    // Auto-snapshot existing file before overwriting so /rollback can restore it
+    if (fileExists) {
+      captureSnapshot(cwd, [input.path as string]);
     }
 
     mkdirSync(dirname(filePath), { recursive: true });

@@ -38,6 +38,7 @@ import {
   handleUndoCommand,
   handleModelSwitch,
 } from "./commands.js";
+import { listSnapshots, restoreSnapshot } from "../snapshot/index.js";
 
 export interface SessionOptions {
   rules: Rule[];        // initial rules (already merged) passed from cli.ts
@@ -190,6 +191,57 @@ export async function startInteractiveSession(opts: SessionOptions) {
       if (trimmed.startsWith("/model")) {
         const arg = trimmed.slice(6).trim();
         llmInfo = handleModelSwitch(arg, llmInfo);
+        continue;
+      }
+
+      // ── /snapshot ─────────────────────────────────────────────────────
+      if (trimmed === "/snapshot" || trimmed === "/snapshots") {
+        const snaps = listSnapshots(cwd);
+        if (snaps.length === 0) {
+          console.log(chalk.dim("\n  No snapshots yet. Snapshots are taken automatically before each file edit.\n"));
+        } else {
+          console.log();
+          console.log(chalk.hex("#7ED6DF").bold("  📸 Snapshots"));
+          console.log(chalk.dim("  ─────────────────────────────────────────────────────"));
+          for (const s of snaps.slice(0, 10)) {
+            const date = new Date(s.createdAt).toLocaleString();
+            console.log(`  ${chalk.hex("#7ED6DF")(s.id)}  ${chalk.dim(date)}  ${chalk.dim(s.files.join(", "))}`);
+          }
+          console.log(chalk.dim("\n  Use /rollback <id> to restore a snapshot.\n"));
+        }
+        continue;
+      }
+
+      // ── /rollback ─────────────────────────────────────────────────────
+      if (trimmed.startsWith("/rollback")) {
+        const snaps = listSnapshots(cwd);
+        const arg = trimmed.slice(9).trim();
+
+        if (!arg) {
+          if (snaps.length === 0) {
+            console.log(chalk.dim("\n  No snapshots to rollback to.\n"));
+          } else {
+            const latest = snaps[0];
+            console.log(chalk.dim(`\n  Usage: /rollback <id>  (most recent: ${latest.id})\n`));
+            for (const s of snaps.slice(0, 5)) {
+              console.log(`    ${chalk.hex("#7ED6DF")(s.id)}  ${chalk.dim(s.files.join(", "))}`);
+            }
+            console.log();
+          }
+          continue;
+        }
+
+        const restored = restoreSnapshot(cwd, arg);
+        if (!restored) {
+          console.log(chalk.red(`\n  Snapshot "${arg}" not found. Use /snapshot to list available snapshots.\n`));
+        } else {
+          console.log();
+          console.log(chalk.green("  ✔  Rollback complete."));
+          for (const f of restored) {
+            console.log(`     ${chalk.dim("↩")} ${f}`);
+          }
+          console.log();
+        }
         continue;
       }
 
