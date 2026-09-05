@@ -7,6 +7,7 @@ import { RuleEngine } from "./engine.js";
 import { runAgent } from "./agent.js";
 import { createLLMClient, type Provider } from "./llm/index.js";
 import { startInteractiveSession } from "./ui/session.js";
+import { appendAuditEvent } from "./audit/index.js";
 import {
   printAssistantMessage,
   printToolCall,
@@ -106,6 +107,9 @@ async function main() {
         spinner.stop();
         printToolError(err);
         spinner.start();
+      },
+      onAuditEvent: (event) => {
+        appendAuditEvent(cwd, event);
       },
     },
   });

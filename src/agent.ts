@@ -1,5 +1,6 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { captureSnapshot } from "./snapshot/index.js";
+import type { AuditEvent } from "./audit/index.js";
 import { dirname, join, relative } from "node:path";
 import { truncateOutput } from "./util/truncate.js";
 import { compactHistory } from "./util/compaction.js";
@@ -20,6 +21,8 @@ export interface AgentEvents {
   onToolApplied?: (toolName: string, detail: string) => void;
   onToolRejected?: (toolName: string, violations: RuleViolation[]) => void;
   onToolError?: (toolName: string, error: string) => void;
+  /** Fires for every rule violation so callers can write audit logs without agent.ts doing I/O. */
+  onAuditEvent?: (event: AuditEvent) => void;
 }
 
 export interface AgentOptions {
@@ -244,6 +247,24 @@ async function handleToolUse(
 ): Promise<ToolResultPart> {
   const { input } = use;
 
+  /** Fires onToolRejected + onAuditEvent for every violation in the check result. */
+  function emitRejection(violations: RuleViolation[]): void {
+    events.onToolRejected?.(use.name, violations);
+    const taskSnippet = ctx.description.slice(0, 80);
+    for (const v of violations) {
+      events.onAuditEvent?.({
+        timestamp: new Date().toISOString(),
+        severity: v.blocking ? "BLOCKED" : "WARNING",
+        ruleId: v.ruleId,
+        message: v.message,
+        toolName: use.name,
+        filePath: use.name === "edit_file" ? (input.path as string | undefined) : undefined,
+        command: use.name === "run_command" ? (input.command as string | undefined) : undefined,
+        taskDescription: taskSnippet,
+      });
+    }
+  }
+
   if (use.name === "read_file") {
     const relPath = input.path as string;
     const fullPath = join(cwd, relPath);
@@ -422,7 +443,7 @@ async function handleToolUse(
 
     const check = engine.check(action, ctx);
     if (!check.ok) {
-      events.onToolRejected?.(use.name, check.violations);
+      emitRejection(check.violations);
       const reasons = check.violations.map((v) => `- [${v.ruleId}] ${v.message}`).join("\n");
       return { type: "tool_result", tool_use_id: use.id, is_error: true, content: reasons };
     }
@@ -445,7 +466,7 @@ async function handleToolUse(
     };
     const check = engine.check(cmdAction, ctx);
     if (!check.ok) {
-      events.onToolRejected?.(use.name, check.violations);
+      emitRejection(check.violations);
       const reasons = check.violations.map((v) => `- [${v.ruleId}] ${v.message}`).join("\n");
       return { type: "tool_result", tool_use_id: use.id, is_error: true, content: reasons };
     }
@@ -476,7 +497,7 @@ async function handleToolUse(
     };
     const check = engine.check(action, ctx);
     if (!check.ok) {
-      events.onToolRejected?.(use.name, check.violations);
+      emitRejection(check.violations);
       const reasons = check.violations.map((v) => `- [${v.ruleId}] ${v.message}`).join("\n");
       return { type: "tool_result", tool_use_id: use.id, is_error: true, content: reasons };
     }

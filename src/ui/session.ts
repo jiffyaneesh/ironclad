@@ -39,6 +39,8 @@ import {
   handleModelSwitch,
 } from "./commands.js";
 import { listSnapshots, restoreSnapshot } from "../snapshot/index.js";
+import { appendAuditEvent } from "../audit/index.js";
+import { readAuditLog, summariseAuditLog } from "../audit/reader.js";
 
 export interface SessionOptions {
   rules: Rule[];        // initial rules (already merged) passed from cli.ts
@@ -191,6 +193,51 @@ export async function startInteractiveSession(opts: SessionOptions) {
       if (trimmed.startsWith("/model")) {
         const arg = trimmed.slice(6).trim();
         llmInfo = handleModelSwitch(arg, llmInfo);
+        continue;
+      }
+
+      // ── /audit ────────────────────────────────────────────────────────
+      if (trimmed === "/audit" || trimmed.startsWith("/audit ")) {
+        const arg = trimmed.slice(6).trim();
+        const events = readAuditLog(cwd);
+
+        if (events.length === 0) {
+          console.log(chalk.dim("\n  Audit log is empty. Rule violations are recorded here automatically.\n"));
+          continue;
+        }
+
+        if (arg === "summary" || arg === "-s") {
+          const summary = summariseAuditLog(events);
+          console.log();
+          console.log(chalk.hex("#E17055").bold("  🛡  Audit Summary"));
+          console.log(chalk.dim("  ─────────────────────────────────────────────────────"));
+          for (const s of summary) {
+            const blocked = s.blocked > 0 ? chalk.bgRed.white.bold(` ${s.blocked} blocked `) : "";
+            const warned  = s.warned  > 0 ? chalk.bgYellow.black.bold(` ${s.warned} warned `) : "";
+            console.log(`  ${chalk.hex("#E17055")(s.ruleId.padEnd(30))}  ${blocked}${warned}`);
+          }
+          console.log(chalk.dim(`\n  Total events: ${events.length}. Use /audit to see full log.\n`));
+        } else {
+          const limit = 15;
+          const shown = events.slice(0, limit);
+          console.log();
+          console.log(chalk.hex("#E17055").bold("  🛡  Audit Log") + chalk.dim(` (${events.length} events, newest first)`));
+          console.log(chalk.dim("  ─────────────────────────────────────────────────────"));
+          for (const e of shown) {
+            const badge = e.severity === "BLOCKED"
+              ? chalk.bgRed.white.bold(" BLOCKED ")
+              : chalk.bgYellow.black.bold(" WARNING ");
+            const ts = new Date(e.timestamp).toLocaleTimeString();
+            const detail = e.filePath ?? e.command ?? "";
+            console.log(`  ${badge} ${chalk.dim(ts)}  ${chalk.hex("#E17055")(e.ruleId)}  ${chalk.dim(e.toolName)}${detail ? "  " + chalk.dim(detail) : ""}`);
+            console.log(`         ${chalk.dim(e.message)}`);
+          }
+          if (events.length > limit) {
+            console.log(chalk.dim(`\n  … and ${events.length - limit} older events. Use /audit summary for a grouped view.\n`));
+          } else {
+            console.log(chalk.dim("\n  Use /audit summary for a grouped breakdown by rule.\n"));
+          }
+        }
         continue;
       }
 
@@ -362,6 +409,9 @@ export async function startInteractiveSession(opts: SessionOptions) {
             spinner.stop();
             printToolError(err);
             spinner.start(chalk.hex("#95A5A6")("…"));
+          },
+          onAuditEvent: (event) => {
+            appendAuditEvent(cwd, event);
           },
         },
       });

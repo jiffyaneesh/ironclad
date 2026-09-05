@@ -18,6 +18,8 @@ export const BUILTIN_COMMANDS: CommandSuggestion[] = [
   { command: "/review", description: "Audit uncommitted changes against active rules" },
   { command: "/undo", description: "Revert uncommitted changes in working directory" },
   { command: "/model", description: "Switch LLM provider/model (e.g. /model openai gpt-4o)" },
+  { command: "/audit", description: "Show recent rule violation events from the audit log" },
+  { command: "/audit summary", description: "Show grouped audit counts per rule" },
   { command: "/snapshot", description: "List all snapshots taken before file edits" },
   { command: "/rollback", description: "Restore a previous snapshot (e.g. /rollback 2026-09-04T23-39-08)" },
   { command: "/delegate", description: "Spawn a dedicated subagent for a focused subtask" },
